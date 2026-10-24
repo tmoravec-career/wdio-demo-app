@@ -25,6 +25,17 @@ export default function TabsLayout() {
             }}
           />
           <Tabs.Screen
+            name="sleep"
+            options={{
+              title: 'Sleep',
+              tabBarLabel: 'Sleep',
+              tabBarAccessibilityLabel: 'Sleep',
+              tabBarIcon: ({color}) => (
+                <Icon color={color} name="weather-night" size={26} />
+              ),
+            }}
+          />
+          <Tabs.Screen
             name="webview"
             options={{
               title: 'Webview',

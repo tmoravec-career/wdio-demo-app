@@ -1,0 +1,47 @@
+name: build-android
+
+# Two APKs from the same code: `test` enables the wdio://debug seeded-bug route, `release` does not.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        variant: [test, release]
+    env:
+      EXPO_PUBLIC_SEEDED_BUGS: ${{ matrix.variant == 'test' && '1' || '' }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/cache@v5
+        with:
+          path: |
+            ~/.gradle/wrapper
+            ~/.gradle/caches
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: ${{ runner.os }}-gradle-
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: 17.x
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build release APK (JS bundled, no dev server)
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+      - run: mv android/app/build/outputs/apk/release/app-release.apk demo-app-${{ matrix.variant }}.apk
+      - uses: actions/upload-artifact@v6
+        with:
+          name: demo-app-${{ matrix.variant }}
+          path: demo-app-${{ matrix.variant }}.apk
+          retention-days: 30

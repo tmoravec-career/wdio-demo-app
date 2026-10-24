@@ -44,3 +44,20 @@ We use [SemVer](https://semver.org/) for versioning, see [VERSIONING.md](./docs/
 - [Expo](https://expo.dev/)
 - [React Native](https://reactnative.dev/)
 - [Expo Router](https://docs.expo.dev/router/introduction/) for navigation
+
+## Sleep-app additions (this copy)
+
+This private copy extends the upstream demo app for test-automation demos:
+
+- **Sleep tab**: free and premium sessions, plus Settings for a mocked subscription
+  (`free`, `trial`, `active`, `expired`) and language (`en`, `es`). Persisted across relaunch.
+- **Player**: plays a bundled tone with background and lock-screen playback; shows status
+  (`Player-status`) and elapsed time (`Player-elapsed`).
+- **Paywall**: a mock, no purchase SDK. Premium sessions open it unless the subscription is
+  `trial` or `active`.
+- **Deep links**: `wdio://state?sub=trial&lang=es`; and, in `test` builds only,
+  `wdio://debug?bug=<none|bg_audio|paywall|i18n>` to switch on one seeded bug.
+- **Builds**: `.github/workflows/build-android.yml` produces `demo-app-test.apk`
+  (`EXPO_PUBLIC_SEEDED_BUGS=1`) and `demo-app-release.apk`.
+
+iOS bundle id is `dev.tmoravec.wdiodemoapp` so a personal signing team can build it.

@@ -4,6 +4,7 @@ import {SafeAreaProvider} from 'react-native-safe-area-context';
 import * as SplashScreen from 'expo-splash-screen';
 import {useEffect} from 'react';
 import WdioStatusBar from '../src/components/StatusBar';
+import {SleepStateProvider} from '../src/sleep/state';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -17,13 +18,15 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{flex: 1}}>
       <SafeAreaProvider>
-        <WdioStatusBar />
-        <Stack
-          screenOptions={{
-            headerShown: false,
-          }}>
-          <Stack.Screen name="(tabs)" options={{headerShown: false}} />
-        </Stack>
+        <SleepStateProvider>
+          <WdioStatusBar />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+            }}>
+            <Stack.Screen name="(tabs)" options={{headerShown: false}} />
+          </Stack>
+        </SleepStateProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

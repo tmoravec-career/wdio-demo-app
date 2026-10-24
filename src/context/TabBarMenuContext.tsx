@@ -8,6 +8,7 @@ import React, {
 import {Alert} from 'react-native';
 
 export type TogglableTabName =
+  | 'sleep'
   | 'webview'
   | 'login'
   | 'forms'
@@ -17,6 +18,7 @@ export type TogglableTabName =
   | 'data-management';
 
 export const TOGGLABLE_TAB_ORDER: TogglableTabName[] = [
+  'sleep',
   'webview',
   'login',
   'forms',
@@ -30,11 +32,12 @@ export const TOGGLABLE_TAB_ORDER: TogglableTabName[] = [
 export const MAX_PINNED_TABS = 5;
 
 const defaultPinned: Record<TogglableTabName, boolean> = {
+  sleep: true,
   webview: true,
   login: true,
   forms: true,
   swipe: true,
-  drag: true,
+  drag: false,
   permissions: false,
   'data-management': false,
 };
