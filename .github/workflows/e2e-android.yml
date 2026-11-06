@@ -1,0 +1,172 @@
+name: e2e-android
+
+# Build once, test many: this workflow never compiles the app. It takes the APKs that
+# build-android.yml already produced (same commit, same binaries that would ship) and runs
+# the Appium suite against them on an emulator.
+#
+#   - automatically, after every successful build-android run on main
+#   - by hand, against any earlier build: Run workflow → build_run_id = <run id>
+on:
+  workflow_run:
+    workflows: [build-android]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: build-android run id whose APKs to test (empty = latest successful on main)
+        required: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  actions: read # download artifacts from another workflow run
+  contents: read
+  checks: write # JUnit results as a check run
+
+env:
+  APPIUM_VERSION: 3.9.0
+  UIAUTOMATOR2_VERSION: 8.7.3
+  API_LEVEL: 34
+
+jobs:
+  resolve-build:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      run_id: ${{ steps.pick.outputs.run_id }}
+    steps:
+      - id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT: ${{ inputs.build_run_id }}
+          TRIGGER: ${{ github.event.workflow_run.id }}
+        run: |
+          id="${INPUT:-$TRIGGER}"
+          if [ -z "$id" ]; then
+            id=$(gh run list -R "$GITHUB_REPOSITORY" --workflow build-android.yml --branch main \
+                 --status success -L 1 --json databaseId -q '.[0].databaseId')
+          fi
+          echo "Testing APKs from build-android run $id"
+          echo "run_id=$id" >> "$GITHUB_OUTPUT"
+
+  e2e:
+    needs: resolve-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # What ships: the release APK must pass everything.
+          - { name: release, variant: release, suite: '', bug: none, expect: pass }
+          # The test APK with no bug on must also pass (proves the test build itself is sound).
+          - { name: test-clean, variant: test, suite: '', bug: none, expect: pass }
+          # Seeded bugs: each targeted suite MUST fail. If it passes, the tests have gone blind.
+          - { name: catches-bg_audio, variant: test, suite: lifecycle, bug: bg_audio, expect: fail }
+          - { name: catches-paywall, variant: test, suite: sleep, bug: paywall, expect: fail }
+          - { name: catches-i18n, variant: test, suite: sleep, bug: i18n, expect: fail }
+    name: e2e (${{ matrix.name }})
+    env:
+      APP_VARIANT: ${{ matrix.variant }}
+      SEEDED_BUG: ${{ matrix.bug }}
+      SUITE: ${{ matrix.suite }}
+      EXPECT: ${{ matrix.expect }}
+      PLATFORM: android
+    steps:
+      # Tests from the same commit as the APK, not whatever main is by now.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Download APK from build run
+        uses: actions/download-artifact@v6
+        with:
+          name: demo-app-${{ matrix.variant }}
+          path: apps/${{ matrix.variant }}
+          run-id: ${{ needs.resolve-build.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Record where the bundle came from
+        run: |
+          cat > apps/${{ matrix.variant }}/manifest.json <<EOF
+          {"source":"ci-run","runId":"${{ needs.resolve-build.outputs.run_id }}","commit":"${{ github.event.workflow_run.head_sha || github.sha }}","variant":"${{ matrix.variant }}"}
+          EOF
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Install test dependencies
+        working-directory: e2e
+        run: npm ci
+
+      - name: Cache Appium and drivers
+        uses: actions/cache@v5
+        with:
+          path: ~/.appium
+          key: appium-${{ env.APPIUM_VERSION }}-uia2-${{ env.UIAUTOMATOR2_VERSION }}
+
+      - name: Install and start Appium
+        run: |
+          npm i -g appium@${APPIUM_VERSION}
+          appium driver list --installed 2>&1 | grep -q uiautomator2 || appium driver install uiautomator2@${UIAUTOMATOR2_VERSION}
+          mkdir -p e2e/reports
+          nohup appium --log e2e/reports/appium.log --log-level info > /dev/null 2>&1 &
+
+      - name: Enable KVM (hardware-accelerated emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Cache AVD snapshot
+        id: avd-cache
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-${{ env.API_LEVEL }}
+
+      - name: Create AVD snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: echo "AVD snapshot created"
+
+      - name: Run suite on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ env.API_LEVEL }}
+          target: google_apis
+          arch: x86_64
+          force-avd-creation: false
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: ./e2e/scripts/ci-run.sh
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-reports-${{ matrix.name }}
+          path: e2e/reports
+          retention-days: 14
+
+      - name: Publish JUnit results
+        if: always() && matrix.expect == 'pass'
+        uses: mikepenz/action-junit-report@v5
+        with:
+          report_paths: e2e/reports/junit/*.xml
+          check_name: e2e (${{ matrix.name }})
