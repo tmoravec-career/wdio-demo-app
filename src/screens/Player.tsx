@@ -32,7 +32,15 @@ const PlayerScreen = ({session}: {session: Session}) => {
       player.setActiveForLockScreen(true, {title: session.title[lang], artist: 'Demo app'});
       player.play();
     });
-    return () => player.clearLockScreenControls();
+    return () => {
+      // useAudioPlayer may release the native player before this cleanup runs (it does on
+      // unmount on Android); calling into a released player throws and crashes the app.
+      try {
+        player.clearLockScreenControls();
+      } catch {
+        // Already released: its lock-screen controls went with it.
+      }
+    };
   }, [player, session, lang]);
 
   useEffect(() => {
