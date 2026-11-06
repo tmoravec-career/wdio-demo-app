@@ -11,7 +11,8 @@ cd "$(dirname "$0")/.."
 args=()
 [[ -n "${SUITE:-}" ]] && args+=(--suite "$SUITE")
 
-npx wdio run ./wdio.conf.ts "${args[@]}"
+# ${args[@]+...}: macOS ships bash 3.2, where an empty array under `set -u` is "unbound".
+npx wdio run ./wdio.conf.ts ${args[@]+"${args[@]}"}
 code=$?
 
 # Device log while the device still exists (the emulator action tears it down after this script).
